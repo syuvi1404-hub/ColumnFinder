@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Scrapes all Tables and Views for selected modules (1-20 and 35)
+Scrapes all Tables and Views across all modules
 from Oracle Fusion Cloud SCM 26D documentation (OEDSC) and generates
 data/scc_schema.json and data/scc_schema.js for the column search dashboard.
 """
@@ -19,7 +19,7 @@ TOC_URL = BASE_URL + "toc.htm"
 ROOT_DIR = Path(__file__).resolve().parent
 DATA_DIR = ROOT_DIR / "data"
 
-TARGET_MODULE_NUMBERS = set(range(1, 21)) | {35}
+TARGET_MODULE_NUMBERS = None  # None = all modules
 
 
 def fetch_text(url: str, timeout: int = 30) -> str:
@@ -50,7 +50,7 @@ def parse_toc(toc_html: str) -> tuple[list[dict], list[str]]:
             continue
         module_title = unescape(m.group(1)).strip()
         module_num = int(module_title.split()[0])
-        if module_num not in TARGET_MODULE_NUMBERS:
+        if TARGET_MODULE_NUMBERS is not None and module_num not in TARGET_MODULE_NUMBERS:
             continue
 
         sections = re.findall(

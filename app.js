@@ -17,6 +17,7 @@
   let schemaData = null;
   let allObjects = [];
   let columnIndex = []; // [{ name, upper, count, tableCount, viewCount }]
+  let moduleColumnIndexCache = new Map(); // module -> columnIndex array
   let currentMatches = []; // [{ obj, matchedColumns }]
   let expandedCards = new Set();
   let displayLimit = PAGE_SIZE;
@@ -253,10 +254,20 @@
 
     if (filtered.length === 0) {
       els.loadMoreWrap.classList.add("hidden");
+      let switchBtnHtml = "";
+      if (state.moduleFilter !== "ALL" && terms.length > 0) {
+        const globalCount = computeMatches(allObjects, terms, state.exact).filter(
+          (m) => state.typeFilter === "ALL" || m.obj.type === state.typeFilter
+        ).length;
+        if (globalCount > 0) {
+          switchBtnHtml = `<p style="margin-top:12px;"><button id="switch-all-modules-btn" class="action-btn">Search across All Modules (${globalCount} found)</button></p>`;
+        }
+      }
       els.resultsList.innerHTML = `
         <div class="empty-state">
           <h3>No matching tables or views</h3>
           <p>No ${state.moduleFilter === "ALL" ? "indexed" : escapeHtml(state.moduleFilter)} ${state.typeFilter === "ALL" ? "tables or views" : state.typeFilter.toLowerCase() + "s"} contain ${terms.map((t) => `<code>${escapeHtml(t)}</code>`).join(" and ")}${state.exact ? " (exact match)" : ""}.</p>
+          ${switchBtnHtml}
         </div>
       `;
       return;
@@ -356,6 +367,16 @@
     els.resultsList.innerHTML = html;
   }
 
+  function getActiveColumnIndex() {
+    if (state.moduleFilter === "ALL") return columnIndex;
+    let cached = moduleColumnIndexCache.get(state.moduleFilter);
+    if (!cached) {
+      cached = buildColumnIndex(allObjects.filter((o) => o.module === state.moduleFilter));
+      moduleColumnIndexCache.set(state.moduleFilter, cached);
+    }
+    return cached;
+  }
+
   // Autocomplete for the last comma-separated token
   function renderAutocomplete() {
     const raw = els.searchInput.value;
@@ -368,7 +389,7 @@
       return;
     }
 
-    const suggestions = columnIndex
+    const suggestions = getActiveColumnIndex()
       .filter((c) => c.upper.includes(activeToken))
       .sort((a, b) => {
         const aExact = a.upper === activeToken ? 2 : a.upper.startsWith(activeToken) ? 1 : 0;
@@ -579,9 +600,13 @@
         acActiveIndex = (acActiveIndex - 1 + items.length) % items.length;
         items.forEach((el, i) => el.classList.toggle("active", i === acActiveIndex));
         items[acActiveIndex].scrollIntoView({ block: "nearest" });
-      } else if (e.key === "Enter" && isOpen && acActiveIndex >= 0) {
+      } else if (e.key === "Enter" && isOpen) {
         e.preventDefault();
-        applyAutocomplete(items[acActiveIndex].dataset.col);
+        if (acActiveIndex >= 0) {
+          applyAutocomplete(items[acActiveIndex].dataset.col);
+        } else {
+          els.acList.classList.add("hidden");
+        }
       } else if (e.key === "Escape") {
         if (isOpen) {
           els.acList.classList.add("hidden");
@@ -663,6 +688,14 @@
     });
 
     els.resultsList.addEventListener("click", (e) => {
+      const switchBtn = e.target.closest("#switch-all-modules-btn");
+      if (switchBtn) {
+        state.moduleFilter = "ALL";
+        els.moduleSelect.value = "ALL";
+        displayLimit = PAGE_SIZE;
+        render();
+        return;
+      }
       const copyBtn = e.target.closest("[data-copy-name]");
       if (copyBtn) {
         navigator.clipboard.writeText(copyBtn.dataset.copyName).then(() => {

@@ -12,17 +12,21 @@
     "SUPPLIER_SITE_ID",
   ];
 
+  const PAGE_SIZE = 100;
+
   let schemaData = null;
   let allObjects = [];
   let columnIndex = []; // [{ name, upper, count, tableCount, viewCount }]
   let currentMatches = []; // [{ obj, matchedColumns }]
   let expandedCards = new Set();
+  let displayLimit = PAGE_SIZE;
   let currentDrawerObj = null;
   let acActiveIndex = -1;
 
   const state = {
     query: "",
     typeFilter: "ALL", // ALL | TABLE | VIEW
+    moduleFilter: "ALL", // ALL | <module title>
     exact: false,
     sort: "relevance",
   };
@@ -32,11 +36,14 @@
     searchInput: document.getElementById("search-input"),
     clearBtn: document.getElementById("clear-btn"),
     acList: document.getElementById("autocomplete-list"),
+    moduleSelect: document.getElementById("module-select"),
     exactToggle: document.getElementById("exact-toggle"),
     sortSelect: document.getElementById("sort-select"),
     quickChips: document.getElementById("quick-chips"),
     resultsSummary: document.getElementById("results-summary"),
     resultsList: document.getElementById("results-list"),
+    loadMoreWrap: document.getElementById("load-more-wrap"),
+    loadMoreBtn: document.getElementById("load-more-btn"),
     toggleAllBtn: document.getElementById("toggle-all-btn"),
     copyNamesBtn: document.getElementById("copy-names-btn"),
     exportCsvBtn: document.getElementById("export-csv-btn"),
@@ -181,7 +188,12 @@
     const terms = parseQueryTerms(state.query);
     els.clearBtn.classList.toggle("hidden", state.query.length === 0);
 
-    const allMatched = computeMatches(allObjects, terms, state.exact);
+    const moduleScoped =
+      state.moduleFilter === "ALL"
+        ? allObjects
+        : allObjects.filter((o) => o.module === state.moduleFilter);
+
+    const allMatched = computeMatches(moduleScoped, terms, state.exact);
     const totalTables = allMatched.filter((m) => m.obj.type === "TABLE").length;
     const totalViews = allMatched.filter((m) => m.obj.type === "VIEW").length;
 
@@ -240,16 +252,25 @@
     }
 
     if (filtered.length === 0) {
+      els.loadMoreWrap.classList.add("hidden");
       els.resultsList.innerHTML = `
         <div class="empty-state">
           <h3>No matching tables or views</h3>
-          <p>No Supply Chain Collaboration ${state.typeFilter === "ALL" ? "tables or views" : state.typeFilter.toLowerCase() + "s"} contain ${terms.map((t) => `<code>${escapeHtml(t)}</code>`).join(" and ")}${state.exact ? " (exact match)" : ""}.</p>
+          <p>No ${state.moduleFilter === "ALL" ? "indexed" : escapeHtml(state.moduleFilter)} ${state.typeFilter === "ALL" ? "tables or views" : state.typeFilter.toLowerCase() + "s"} contain ${terms.map((t) => `<code>${escapeHtml(t)}</code>`).join(" and ")}${state.exact ? " (exact match)" : ""}.</p>
         </div>
       `;
       return;
     }
 
-    const html = filtered
+    const visible = filtered.slice(0, displayLimit);
+    const remaining = filtered.length - visible.length;
+    els.loadMoreWrap.classList.toggle("hidden", remaining <= 0);
+    if (remaining > 0) {
+      const nextBatch = Math.min(PAGE_SIZE, remaining);
+      els.loadMoreBtn.textContent = `Show ${nextBatch} more (${remaining} remaining)`;
+    }
+
+    const html = visible
       .map(({ obj, matchedColumns }) => {
         const badgeCls = obj.type === "TABLE" ? "badge-table" : "badge-view";
         const pkSet = new Set(obj.primaryKey || []);
@@ -309,6 +330,7 @@
                   ${hasMatches ? '<span class="chevron" aria-hidden="true">&#9656;</span>' : ""}
                   <span class="badge ${badgeCls}">${obj.type}</span>
                   <span class="obj-name">${escapeHtml(obj.name)}</span>
+                  ${obj.module ? `<span class="badge badge-module">${escapeHtml(obj.module)}</span>` : ""}
                   ${matchBadgeHtml}
                 </div>
                 ${obj.description ? `<p class="card-desc">${escapeHtml(obj.description)}</p>` : ""}
@@ -538,6 +560,7 @@
     els.searchInput.addEventListener("input", () => {
       state.query = els.searchInput.value;
       expandedCards.clear();
+      displayLimit = PAGE_SIZE;
       renderAutocomplete();
       render();
     });
@@ -589,6 +612,7 @@
       els.searchInput.value = "";
       state.query = "";
       expandedCards.clear();
+      displayLimit = PAGE_SIZE;
       els.acList.classList.add("hidden");
       render();
       els.searchInput.focus();
@@ -597,18 +621,33 @@
     els.segBtns.forEach((btn) => {
       btn.addEventListener("click", () => {
         state.typeFilter = btn.dataset.type;
+        displayLimit = PAGE_SIZE;
         els.segBtns.forEach((b) => b.classList.toggle("active", b === btn));
         render();
       });
     });
 
+    els.moduleSelect.addEventListener("change", () => {
+      state.moduleFilter = els.moduleSelect.value;
+      displayLimit = PAGE_SIZE;
+      expandedCards.clear();
+      render();
+    });
+
     els.exactToggle.addEventListener("change", () => {
       state.exact = els.exactToggle.checked;
+      displayLimit = PAGE_SIZE;
       render();
     });
 
     els.sortSelect.addEventListener("change", () => {
       state.sort = els.sortSelect.value;
+      displayLimit = PAGE_SIZE;
+      render();
+    });
+
+    els.loadMoreBtn.addEventListener("click", () => {
+      displayLimit += PAGE_SIZE;
       render();
     });
 
@@ -618,6 +657,7 @@
       els.searchInput.value = chip.dataset.col;
       state.query = chip.dataset.col;
       expandedCards.clear();
+      displayLimit = PAGE_SIZE;
       els.acList.classList.add("hidden");
       render();
     });
@@ -710,6 +750,23 @@
     els.statTables.textContent = schemaData.meta.tableCount;
     els.statViews.textContent = schemaData.meta.viewCount;
     els.statColumns.textContent = schemaData.meta.uniqueColumnCount;
+
+    // Populate Module filter dropdown
+    const moduleCounts = new Map();
+    for (const obj of allObjects) {
+      if (obj.module) {
+        moduleCounts.set(obj.module, (moduleCounts.get(obj.module) || 0) + 1);
+      }
+    }
+    const modules = Array.isArray(schemaData.meta.modules)
+      ? schemaData.meta.modules
+      : Array.from(moduleCounts.keys());
+    const moduleOptions = [`<option value="ALL">All Modules (${allObjects.length})</option>`];
+    for (const mod of modules) {
+      const cnt = moduleCounts.get(mod) || 0;
+      moduleOptions.push(`<option value="${escapeHtml(mod)}">${escapeHtml(mod)} (${cnt})</option>`);
+    }
+    els.moduleSelect.innerHTML = moduleOptions.join("");
 
     // Render quick chips
     const colSet = new Set(columnIndex.map((c) => c.name));

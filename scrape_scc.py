@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Scrapes all Tables and Views under menu 35 (Supply Chain Collaboration)
+Scrapes all Tables and Views for selected modules (1-20 and 35)
 from Oracle Fusion Cloud SCM 26D documentation (OEDSC) and generates
 data/scc_schema.json and data/scc_schema.js for the column search dashboard.
 """
@@ -19,11 +19,13 @@ TOC_URL = BASE_URL + "toc.htm"
 ROOT_DIR = Path(__file__).resolve().parent
 DATA_DIR = ROOT_DIR / "data"
 
+TARGET_MODULE_NUMBERS = set(range(1, 21)) | {35}
+
 
 def fetch_text(url: str, timeout: int = 30) -> str:
     req = urllib.request.Request(
         url,
-        headers={"User-Agent": "Mozilla/5.0 (compatible; SCC-Schema-Indexer/1.0)"},
+        headers={"User-Agent": "Mozilla/5.0 (compatible; SCM-Schema-Indexer/2.0)"},
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8", errors="replace")
@@ -35,34 +37,50 @@ def strip_tags(html_fragment: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def parse_toc(toc_html: str) -> list[dict]:
-    m = re.search(
-        r'<li><span class="wrap">35 Supply Chain Collaboration</span><ul>(.*?)</ul>\s*</li>\s*<li><span class="wrap">36 ',
-        toc_html,
-        re.S,
-    )
-    if not m:
-        raise RuntimeError("Could not locate '35 Supply Chain Collaboration' in toc.htm")
-
-    section = m.group(1)
+def parse_toc(toc_html: str) -> tuple[list[dict], list[str]]:
+    parts = re.split(r'(<li><span class="wrap">\d+\s+[^<]+</span>)', toc_html)
     entries: list[dict] = []
-    for kind, body in re.findall(
-        r'<li><span class="wrap">(Tables|Views)</span><ul>(.*?)</ul>\s*</li>',
-        section,
-        re.S,
-    ):
-        obj_type = "TABLE" if kind == "Tables" else "VIEW"
-        for href, name in re.findall(r'<a href="([^"]+)">([^<]+)</a>', body):
-            page = href.split("#")[0]
-            entries.append(
-                {
-                    "name": unescape(name).strip(),
-                    "type": obj_type,
-                    "href": href,
-                    "url": BASE_URL + page,
-                }
-            )
-    return entries
+    modules_found: list[str] = []
+
+    for i in range(1, len(parts), 2):
+        header = parts[i]
+        body = parts[i + 1] if i + 1 < len(parts) else ""
+        m = re.search(r">(\d+\s+[^<]+)<", header)
+        if not m:
+            continue
+        module_title = unescape(m.group(1)).strip()
+        module_num = int(module_title.split()[0])
+        if module_num not in TARGET_MODULE_NUMBERS:
+            continue
+
+        sections = re.findall(
+            r'<li><span class="wrap">(Tables|Views)</span><ul>(.*?)</ul>\s*</li>',
+            body,
+            re.S,
+        )
+        if not sections:
+            continue
+
+        modules_found.append(module_title)
+        for kind, sec_body in sections:
+            obj_type = "TABLE" if kind == "Tables" else "VIEW"
+            for href, name in re.findall(r'<a href="([^"]+)">([^<]+)</a>', sec_body):
+                page = href.split("#")[0]
+                entries.append(
+                    {
+                        "name": unescape(name).strip(),
+                        "type": obj_type,
+                        "module": module_title,
+                        "moduleNum": module_num,
+                        "href": href,
+                        "url": BASE_URL + page,
+                    }
+                )
+
+    if not entries:
+        raise RuntimeError("No tables or views found for target modules in toc.htm")
+
+    return entries, modules_found
 
 
 def parse_object_page(entry: dict) -> dict:
@@ -120,7 +138,6 @@ def parse_object_page(entry: dict) -> dict:
         if tbody_m:
             rows = re.findall(r"<tr[^>]*>(.*?)</tr>", tbody_m.group(1), re.S)
             if len(headers) == 1 and headers[0] == "name":
-                # View style: single cell with multiple <p class="p">COL</p>
                 for row in rows:
                     ps = re.findall(r"<p[^>]*>(.*?)</p>", row, re.S)
                     if ps:
@@ -151,7 +168,6 @@ def parse_object_page(entry: dict) -> dict:
                                 }
                             )
             else:
-                # Table style: 6 columns (Name, Datatype, Length, Precision, Not-null, Comments)
                 for row in rows:
                     tds = [strip_tags(td) for td in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
                     if not tds or not tds[0]:
@@ -180,10 +196,12 @@ def parse_object_page(entry: dict) -> dict:
     return {
         "name": entry["name"],
         "type": entry["type"],
+        "module": entry["module"],
+        "moduleNum": entry["moduleNum"],
         "url": entry["url"],
         "description": description,
         "schema": details.get("schema", "FUSION"),
-        "owner": details.get("object owner", "VCS"),
+        "owner": details.get("object owner", ""),
         "tablespace": details.get("tablespace", ""),
         "primaryKey": primary_key,
         "columns": columns,
@@ -194,13 +212,17 @@ def parse_object_page(entry: dict) -> dict:
 def main() -> int:
     print(f"Fetching TOC from {TOC_URL} ...")
     toc_html = fetch_text(TOC_URL)
-    entries = parse_toc(toc_html)
-    print(f"Found {len(entries)} objects ({sum(1 for e in entries if e['type']=='TABLE')} tables, {sum(1 for e in entries if e['type']=='VIEW')} views).")
+    entries, modules_found = parse_toc(toc_html)
+    print(
+        f"Found {len(entries)} objects across {len(modules_found)} modules "
+        f"({sum(1 for e in entries if e['type']=='TABLE')} tables, "
+        f"{sum(1 for e in entries if e['type']=='VIEW')} views)."
+    )
 
     results: list[dict] = []
     errors: list[tuple[str, str]] = []
 
-    with ThreadPoolExecutor(max_workers=12) as pool:
+    with ThreadPoolExecutor(max_workers=24) as pool:
         future_map = {pool.submit(parse_object_page, e): e for e in entries}
         for i, fut in enumerate(as_completed(future_map), 1):
             entry = future_map[fut]
@@ -208,15 +230,15 @@ def main() -> int:
                 results.append(fut.result())
             except Exception as exc:
                 errors.append((entry["name"], str(exc)))
-            if i % 20 == 0 or i == len(entries):
+            if i % 100 == 0 or i == len(entries):
                 print(f"  Processed {i}/{len(entries)}...")
 
     if errors:
-        print(f"Errors ({len(errors)}):", errors, file=sys.stderr)
+        print(f"Errors ({len(errors)}):", errors[:20], file=sys.stderr)
         return 1
 
-    # Sort: Tables first alphabetically, then Views alphabetically
-    results.sort(key=lambda x: (0 if x["type"] == "TABLE" else 1, x["name"]))
+    # Sort: Module number, then Tables first alphabetically, then Views alphabetically
+    results.sort(key=lambda x: (x["moduleNum"], 0 if x["type"] == "TABLE" else 1, x["name"]))
 
     unique_cols = {c["name"] for obj in results for c in obj["columns"]}
     total_col_occurrences = sum(len(obj["columns"]) for obj in results)
@@ -225,7 +247,7 @@ def main() -> int:
         "meta": {
             "sourceUrl": BASE_URL + "index.html",
             "release": "26D",
-            "section": "35 Supply Chain Collaboration",
+            "modules": modules_found,
             "generatedAt": datetime.now(timezone.utc).isoformat(),
             "tableCount": sum(1 for r in results if r["type"] == "TABLE"),
             "viewCount": sum(1 for r in results if r["type"] == "VIEW"),
@@ -239,12 +261,13 @@ def main() -> int:
     json_path = DATA_DIR / "scc_schema.json"
     js_path = DATA_DIR / "scc_schema.js"
 
-    json_text = json.dumps(payload, indent=2, ensure_ascii=False)
+    json_text = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
     json_path.write_text(json_text, encoding="utf-8")
-    js_path.write_text(f"window.SCC_SCHEMA = {json_text};\n", encoding="utf-8")
+    js_path.write_text(f"window.SCC_SCHEMA={json_text};\n", encoding="utf-8")
 
     print(
-        f"Done! Wrote {json_path} and {js_path}\n"
+        f"Done! Wrote {json_path} ({json_path.stat().st_size / 1024 / 1024:.2f} MB) and {js_path}\n"
+        f"  Modules: {len(modules_found)}\n"
         f"  Tables: {payload['meta']['tableCount']}, Views: {payload['meta']['viewCount']}\n"
         f"  Unique columns: {payload['meta']['uniqueColumnCount']}, Total column entries: {payload['meta']['totalColumnOccurrences']}"
     )

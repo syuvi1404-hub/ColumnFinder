@@ -494,6 +494,21 @@ body {
   color: var(--accent);
 }
 
+.badge-module {
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.load-more-wrap {
+  margin: 18px 0 8px;
+  display: flex;
+  justify-content: center;
+}
+
 .card-title-block {
   min-width: 0;
   flex: 1;

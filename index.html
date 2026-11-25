@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Supply Chain Collaboration — Column Search Dashboard (Oracle SCM 26D)</title>
+  <title>Oracle SCM 26D — Column Search Dashboard</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -11,11 +11,11 @@
     <header class="topbar">
       <div class="topbar-inner">
         <div class="brand">
-          <div class="brand-badge">SCC</div>
+          <div class="brand-badge">SCM</div>
           <div>
-            <h1>Supply Chain Collaboration — Column Search</h1>
+            <h1>Oracle SCM — Column Search</h1>
             <p class="subtitle">
-              Oracle Fusion Cloud SCM <span id="meta-release">26D</span> · Menu 35
+              Oracle Fusion Cloud SCM <span id="meta-release">26D</span> · Modules 1–20 &amp; 35
               (<a id="meta-source" href="https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/26d/oedsc/index.html" target="_blank" rel="noopener">Oracle Docs ↗</a>)
             </p>
           </div>
@@ -66,6 +66,13 @@
           </div>
 
           <div class="control-group">
+            <label class="select-label">
+              <span>Module:</span>
+              <select id="module-select">
+                <option value="ALL">All Modules</option>
+              </select>
+            </label>
+
             <label class="toggle-label" title="Require exact column name match">
               <input type="checkbox" id="exact-toggle" />
               <span>Exact match</span>
@@ -100,6 +107,9 @@
       </section>
 
       <section id="results-list" class="results-list"></section>
+      <div id="load-more-wrap" class="load-more-wrap hidden">
+        <button id="load-more-btn" class="action-btn"></button>
+      </div>
     </main>
   </div>
 

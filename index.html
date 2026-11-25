@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Supply Chain Collaboration — Column Search Dashboard (Oracle SCM 26D)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <div class="brand-badge">SCC</div>
+          <div>
+            <h1>Supply Chain Collaboration — Column Search</h1>
+            <p class="subtitle">
+              Oracle Fusion Cloud SCM <span id="meta-release">26D</span> · Menu 35
+              (<a id="meta-source" href="https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/26d/oedsc/index.html" target="_blank" rel="noopener">Oracle Docs ↗</a>)
+            </p>
+          </div>
+        </div>
+        <div class="stats-strip" id="stats-strip">
+          <div class="stat-pill">
+            <span class="stat-value" id="stat-tables">—</span>
+            <span class="stat-label">Tables</span>
+          </div>
+          <div class="stat-pill">
+            <span class="stat-value" id="stat-views">—</span>
+            <span class="stat-label">Views</span>
+          </div>
+          <div class="stat-pill">
+            <span class="stat-value" id="stat-columns">—</span>
+            <span class="stat-label">Unique Columns</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="search-panel">
+        <div class="search-box-wrap">
+          <div class="search-input-group">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input
+              type="text"
+              id="search-input"
+              class="search-input"
+              placeholder="Search column name (e.g. INVENTORY_ITEM_ID, STATUS_CODE, or comma-separated for multi-column)..."
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button id="clear-btn" class="clear-btn hidden" title="Clear search (Esc)" aria-label="Clear search">&times;</button>
+          </div>
+          <div id="autocomplete-list" class="autocomplete-list hidden" role="listbox"></div>
+        </div>
+
+        <div class="controls-row">
+          <div class="segmented" role="group" aria-label="Object type filter">
+            <button class="seg-btn active" data-type="ALL">All <span class="seg-count" id="count-all">0</span></button>
+            <button class="seg-btn" data-type="TABLE">Tables <span class="seg-count" id="count-table">0</span></button>
+            <button class="seg-btn" data-type="VIEW">Views <span class="seg-count" id="count-view">0</span></button>
+          </div>
+
+          <div class="control-group">
+            <label class="toggle-label" title="Require exact column name match">
+              <input type="checkbox" id="exact-toggle" />
+              <span>Exact match</span>
+            </label>
+
+            <label class="select-label">
+              <span>Sort:</span>
+              <select id="sort-select">
+                <option value="relevance">Relevance</option>
+                <option value="name">Name (A–Z)</option>
+                <option value="type">Tables first</option>
+                <option value="views-first">Views first</option>
+                <option value="columns">Column count</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="quick-chips">
+          <span class="chips-label">Common columns:</span>
+          <div class="chips-list" id="quick-chips"></div>
+        </div>
+      </section>
+
+      <section class="results-bar">
+        <div class="results-summary" id="results-summary">Loading schema...</div>
+        <div class="results-actions">
+          <button id="toggle-all-btn" class="action-btn hidden" title="Expand or collapse all matched columns">Expand All</button>
+          <button id="copy-names-btn" class="action-btn" title="Copy matching table &amp; view names">Copy Names</button>
+          <button id="export-csv-btn" class="action-btn" title="Download matching results as CSV">Export CSV</button>
+        </div>
+      </section>
+
+      <section id="results-list" class="results-list"></section>
+    </main>
+  </div>
+
+  <!-- Slide-over Drawer for full object inspection -->
+  <div id="drawer-backdrop" class="drawer-backdrop hidden"></div>
+  <aside id="drawer" class="drawer hidden" aria-hidden="true">
+    <div class="drawer-header">
+      <div>
+        <div class="drawer-title-row">
+          <span id="drawer-badge" class="badge">TABLE</span>
+          <h2 id="drawer-title"></h2>
+        </div>
+        <p id="drawer-desc" class="drawer-desc"></p>
+      </div>
+      <button id="drawer-close" class="icon-btn" aria-label="Close drawer">&times;</button>
+    </div>
+
+    <div class="drawer-meta" id="drawer-meta"></div>
+
+    <div class="drawer-tabs" id="drawer-tabs">
+      <button class="drawer-tab active" data-tab="columns">Columns <span id="drawer-col-count"></span></button>
+      <button class="drawer-tab hidden" data-tab="query" id="drawer-query-tab">View SQL Query</button>
+    </div>
+
+    <div class="drawer-body">
+      <div id="drawer-columns-pane">
+        <div class="drawer-filter-row">
+          <input type="text" id="drawer-col-filter" class="drawer-filter-input" placeholder="Filter columns in this object..." autocomplete="off" />
+        </div>
+        <div id="drawer-columns-table-wrap"></div>
+      </div>
+
+      <div id="drawer-query-pane" class="hidden">
+        <div class="query-toolbar">
+          <span>SQL Definition</span>
+          <button id="copy-query-btn" class="action-btn small">Copy SQL</button>
+        </div>
+        <pre id="drawer-query-code" class="sql-code"></pre>
+      </div>
+    </div>
+  </aside>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="data/scc_schema.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
